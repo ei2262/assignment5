@@ -1,0 +1,127 @@
+---
+title: "Assignment 5: Predicting Current Alcohol Consumption from Behavioral Scores"
+output:
+  word_document: default
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) 
+library(caret)
+library(glmnet)
+```
+
+### Creating and Comparing Three Different Models
+
+#### Loading and Cleaning up "alcohol_use" Dataset 
+
+```{r}
+set.seed(123)
+alcohol_use = read_csv("./alcohol_use.csv")
+
+#Stripping off ID variable
+alcohol_use<-alcohol_use[,2:9]
+
+#Making sure variable types are correct
+str(alcohol_use)
+
+#Changing outcome variable to factor and releveling to make "NotCurrentUse" as reference group
+alcohol_use$alc_consumption<-as.factor(alcohol_use$alc_consumption)
+alcohol_use$alc_consumption<-relevel(alcohol_use$alc_consumption, ref="NotCurrentUse")
+
+#Omit missing data
+alcohol_use<-na.omit(alcohol_use)
+```
+
+
+#### Partitioning Outcome Variable (alc_consumption) into Training and Testing (70/30 Split)
+
+```{r}
+set.seed(123)
+train.indices<-createDataPartition(y=alcohol_use$alc_consumption,p=0.7,list=FALSE)
+
+#Training set (70%)
+train.data<-alcohol_use[train.indices, ]
+
+#Testing set (30%)
+test.data<-alcohol_use[-train.indices, ]
+```
+
+
+#### Tuning and Comparing Performance of All Three Models Within Training Set Using Cross-Validation
+The numeric variables will be scaled and centered within the train functions.
+
+Model 1: Model that chooses alpha and lambda via cross-validation using all of the features (Elastic Net Model)
+```{r}
+set.seed(123)
+
+cross.model<- train(
+  alc_consumption ~., data = train.data, method = "glmnet",
+  trControl = trainControl("cv", number = 10), preProc=c("center", "scale"),
+ tuneLength=10
+  )
+
+cross.model$bestTune
+
+coef(cross.model$finalModel, cross.model$bestTune$lambda)
+
+confusionMatrix(cross.model)
+```
+
+
+Model 2: Model that uses all the features and traditional logistic regression
+```{r}
+set.seed(123)
+
+trad.model <- train(
+  alc_consumption ~., data = train.data, method = "glm", family = "binomial",
+  trControl = trainControl("cv", number = 10), preProcess=c("center", "scale"))
+
+trad.model$bestTune
+
+confusionMatrix(trad.model)
+```
+There is no parameter and the accuracy is 0.7939 (79.3%)
+
+Model 3: Lasso Model using all of the features
+Tuning both alpha and lambda
+```{r}
+set.seed(123)
+
+#Creating grid to search lambda
+lambda<-10^seq(-3,3, length=100)
+
+#Fixing alpha = 1 and lambda = lambda
+lasso.model <- train(
+  alc_consumption ~., data=train.data, method="glmnet", trControl=trainControl("cv", number=10), preProc=c("center", "scale"), tuneGrid=expand.grid(alpha=1, lambda=lambda)
+)
+
+lasso.model$bestTune
+
+confusionMatrix(lasso.model)
+```
+   alpha   lambda
+40     1 0.231013
+
+Accuracy is 85%
+
+### Which model would you choose as your final model? Justify your choice.
+
+I have chosen the Elastic Net Model as my final model because it is the comprise of a ridge regression and lasso model. Given that the accuracy of both Model 1 (elastic net model) and Model 3 (lasso model) is the same at 85%, I will choose the Elastic Net Model because it allows me to keep the feature selection quality from the lasso penalty as well as the reduce overfitting while keeping all the features in the model from the ridge regression penalty.
+
+
+### Applying Final Model to Test Set and Reporting Final Evaluation Metrics
+
+Model 3: Elastic Net Model Using All of the Features
+```{r}
+set.seed(123)
+
+#Make predictions in test set
+test.outcome<-predict(cross.model, newdata=test.data)
+
+#Model Prediction Performance
+confusionMatrix(test.outcome, test.data$alc_consumption, positive="CurrentUse")
+```
+
+
+
